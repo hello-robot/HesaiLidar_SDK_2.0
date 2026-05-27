@@ -390,6 +390,7 @@ bool PtcClient::GetValFromOutput(uint8_t cmd, uint8_t retcode, const u8Array_t &
   return ptc_parser_->PtcStreamDecode(cmd, retcode, payload, start_pos, length, res);
 }
 
+
 u8Array_t PtcClient::GetCorrectionInfo() {
   u8Array_t dataIn;
   u8Array_t dataOut;
@@ -415,6 +416,95 @@ T extractField(const u8Array_t& data, size_t& offset) {
         field = static_cast<T>((field << 8) | data[offset++]);
     }
     return field;
+}
+
+int PtcClient::GetConfigInfo() {
+  u8Array_t dataIn, dataOut;
+  int ret = -1;
+  ret = this->QueryCommand(dataIn, dataOut,
+                           kPTCGetConfigInfo);
+  if (ret == 0 && !dataOut.empty()) {
+    // according to JT128_TCP_API_ARJ01-en-250920.pdf
+    uint32_t ipaddr;
+    uint32_t mask;
+    uint32_t gateway;
+    uint32_t dest_ipaddr;
+    uint16_t dest_point_cloud_udp_port;
+    uint16_t dest_gnss_udp_port; // Not Used
+    uint16_t spin_rate;
+    uint8_t sync_enable;
+    uint16_t sync_angle;
+    uint16_t start_angle; // Not Used
+    uint16_t end_angle; // Not Used
+    uint8_t clock_source;
+    uint8_t udp_seq;
+    uint8_t trigger_mode;
+    uint8_t return_mode;
+    uint8_t standby_mode;
+    uint8_t motor_status; // Not Used
+    uint8_t vlan_flag;
+    uint16_t vlan_id;
+    uint8_t nmea_sentence; // unsigned char, Not Used
+    uint8_t noise_filtering; // unsigned char, Not Used
+    uint8_t reflectivity_mapping; // unsigned char, Not Used
+
+    size_t offset = 0;
+    ipaddr = extractField<uint32_t>(dataOut, offset);
+    mask = extractField<uint32_t>(dataOut, offset);
+    gateway = extractField<uint32_t>(dataOut, offset);
+    dest_ipaddr = extractField<uint32_t>(dataOut, offset);
+    dest_point_cloud_udp_port = extractField<uint16_t>(dataOut, offset);
+    dest_gnss_udp_port = extractField<uint16_t>(dataOut, offset);
+    spin_rate = extractField<uint16_t>(dataOut, offset);
+    sync_enable = extractField<uint8_t>(dataOut, offset);
+    sync_angle = extractField<uint16_t>(dataOut, offset);
+    start_angle = extractField<uint16_t>(dataOut, offset);
+    end_angle = extractField<uint16_t>(dataOut, offset);
+    clock_source = extractField<uint8_t>(dataOut, offset);
+    udp_seq = extractField<uint8_t>(dataOut, offset);
+    trigger_mode = extractField<uint8_t>(dataOut, offset);
+    return_mode = extractField<uint8_t>(dataOut, offset);
+    standby_mode = extractField<uint8_t>(dataOut, offset);
+    motor_status = extractField<uint8_t>(dataOut, offset);
+    vlan_flag = extractField<uint8_t>(dataOut, offset);
+    vlan_id = extractField<uint16_t>(dataOut, offset);
+    nmea_sentence = extractField<uint8_t>(dataOut, offset);
+    noise_filtering = extractField<uint8_t>(dataOut, offset);
+    reflectivity_mapping = extractField<uint8_t>(dataOut, offset);
+
+    uint8_t *ip = reinterpret_cast<uint8_t*>(&ipaddr);
+    uint8_t *mask_ip = reinterpret_cast<uint8_t*>(&mask);
+    uint8_t *gateway_ip = reinterpret_cast<uint8_t*>(&gateway);
+    uint8_t *dest_ip = reinterpret_cast<uint8_t*>(&dest_ipaddr);
+
+    printf("---------- LiDAR Configuration ----------\n"
+          "Device IP address: %u.%u.%u.%u\n"
+          "Device Subnet mask: %u.%u.%u.%u\n"
+          "Device Gateway: %u.%u.%u.%u\n"
+          "Destination IP address: %u.%u.%u.%u\n"
+          "Destination Point cloud + IMU UDP port: %u\n"
+          "GNSS UDP port: %u\n"
+          "Spin rate: %u RPM\n"
+          "Sync enable: %u, Sync angle: %u\n"
+          "Clock source: %u, UDP sequence: %u\n"
+          "Trigger mode: %u, Return mode: %u\n"
+          "Standby mode: %u, VLAN flag: %u, VLAN ID: %u (4095 means invalid)\n"
+          "----------------------------------------\n",
+          ip[3], ip[2], ip[1], ip[0],
+          mask_ip[3], mask_ip[2], mask_ip[1], mask_ip[0],
+          gateway_ip[3], gateway_ip[2], gateway_ip[1], gateway_ip[0],
+          dest_ip[3], dest_ip[2], dest_ip[1], dest_ip[0],
+          dest_point_cloud_udp_port,
+          dest_gnss_udp_port,
+          spin_rate,
+          sync_enable, sync_angle,
+          clock_source, udp_seq,
+          trigger_mode, return_mode,
+          standby_mode, vlan_flag, vlan_id);
+    return 0;
+  } else {
+    return -1;
+  }
 }
 
 int PtcClient::GetPTPDiagnostics (u8Array_t &dataOut, uint8_t query_type) {

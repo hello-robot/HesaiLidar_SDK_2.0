@@ -50,6 +50,7 @@ namespace lidar
 {
 const uint8_t  kPTCGetLidarCalibration = 0x05;
 const uint8_t  kPTCGetPTPDiagnostics= 0x06;
+const uint8_t  kPTCGetConfigInfo = 0x08;
 const uint8_t  kPTCGetInventoryInfo = 0x07;
 const uint8_t  kPTCGetLidarStatus = 0x09;
 const uint8_t  kPTCGetFpgaRegister = 0x0C;
@@ -121,6 +122,7 @@ class PtcClient {
 
   u8Array_t GetCorrectionInfo();
   int GetLidarStatus();
+  int GetConfigInfo();
   int GetPTPDiagnostics (u8Array_t &dataOut, uint8_t query_type);
   int GetPTPLockOffset(u8Array_t &dataOut);
   int GetCorrectionInfo(u8Array_t &dataOut);

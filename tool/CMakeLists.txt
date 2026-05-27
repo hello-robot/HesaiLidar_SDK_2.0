@@ -121,6 +121,23 @@ else(LASlib_FOUND)
     message(STATUS "LASlib not found, las_tool will be skipped")
 endif(LASlib_FOUND)
 
+# Stretch Lidar configuration tools
+add_executable(stretch_configure_left_lidar
+  ./stretch_configure_left_lidar.cc
+)
+
+target_link_libraries(stretch_configure_left_lidar
+  hesai_sdk_lib
+)
+
+add_executable(stretch_configure_right_lidar
+  ./stretch_configure_right_lidar.cc
+)
+
+target_link_libraries(stretch_configure_right_lidar
+  hesai_sdk_lib
+)
+
 # ============================================
 # 构建信息摘要
 # ============================================
