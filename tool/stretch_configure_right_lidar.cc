@@ -56,7 +56,7 @@ int main(int argc, char *argv[])
   printf("Saved calibration to %s (%zu bytes)\n", file_path.c_str(), sData.size());
 
   //Set return mode to strongest
-  sample.lidar_ptr_->ptc_client_->SetReturnMode(2); // 2 -> "Strongest + Fast".
+  sample.lidar_ptr_->ptc_client_->SetReturnMode(2); // 2 -> "Last + Strongest".
   printf("Set return mode to strongest\n");
 
   printf("Done. Exiting...\n");

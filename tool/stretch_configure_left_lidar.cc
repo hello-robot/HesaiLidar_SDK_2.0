@@ -56,7 +56,7 @@ int main(int argc, char *argv[])
   printf("Saved calibration to %s (%zu bytes)\n", file_path.c_str(), sData.size());
 
   //Set return mode to strongest
-  sample.lidar_ptr_->ptc_client_->SetReturnMode(2); // 2 -> "Strongest + Fast".
+  sample.lidar_ptr_->ptc_client_->SetReturnMode(2); // 2 -> "Last + Strongest".
 
   //Set destination (point cloud + IMU) port to 2378
   sample.lidar_ptr_->ptc_client_->SetDesIpandPort("255.255.255.255", 2378, 0); // destination ip, data port, GNSS port (0 means invalid)
