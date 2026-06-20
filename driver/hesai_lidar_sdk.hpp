@@ -48,7 +48,7 @@ private:
   std::function<void(const LidarDecodedFrame<T_Point>&)> point_cloud_cb_;
   std::function<void(const u8Array_t&)> correction_cb_;
   std::function<void(const uint32_t &, const uint32_t &)> pkt_loss_cb_;
-  std::function<void(const uint8_t&, const u8Array_t&)> ptp_cb_;
+  std::function<void(const uint16_t&, const u8Array_t&)> ptp_cb_;
   std::function<void(const FaultMessageInfo&)> fault_message_cb_;
   std::function<void(const LidarImuData&)> imu_cb_;
   bool is_thread_runing_;
@@ -336,16 +336,16 @@ public:
           if (ptp_cb_ && lidar_ptr_->frame_.frame_index % 100 == 1)
           {
             u8Array_t ptp_status;
-            u8Array_t ptp_lock_offset;
+            uint16_t ptp_lock_offset = 0;
             int ret_status = lidar_ptr_->ptc_client_->GetPTPDiagnostics(ptp_status, 1); // ptp_query_type = 1
             int ret_offset = lidar_ptr_->ptc_client_->GetPTPLockOffset(ptp_lock_offset);
             if (ret_status != 0 || ret_offset != 0)
             {
-              LogInfo("-->%d %d %zu %zu", ret_status, ret_offset, ptp_status.size(), ptp_lock_offset.size());
+              LogInfo("-->%d %d %zu", ret_status, ret_offset, ptp_status.size());
             }
             else
             {
-              ptp_cb_(ptp_lock_offset.front(), ptp_status);
+              ptp_cb_(ptp_lock_offset, ptp_status);
             }
           }
           if (correction_cb_ && lidar_ptr_->frame_.frame_index % 1000 == 1)
@@ -460,7 +460,7 @@ public:
   void RegRecvCallback(const std::function<void (const uint32_t &, const uint32_t &)>& callback) {
     pkt_loss_cb_ = callback;
   }
-  void RegRecvCallback(const std::function<void (const uint8_t&, const u8Array_t&)>& callback) {
+  void RegRecvCallback(const std::function<void (const uint16_t&, const u8Array_t&)>& callback) {
     ptp_cb_ = callback;
   }
   void RegRecvCallback(const std::function<void (const FaultMessageInfo&)>& callback) {
