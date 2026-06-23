@@ -88,7 +88,8 @@ const uint32_t kPTCGetPointCloudConfigSubCmd = 0x00000122;      // GET live ultr
 static constexpr uint16_t kPtpLockOffsetMinUs = 1;
 static constexpr uint16_t kPtpLockOffsetMaxUs = 1000;
 static constexpr size_t kPtpDiagnosticsPayloadLen = 24;
-static constexpr size_t kLidarStatusMinLen = 49;
+static constexpr size_t kJt128LidarStatusPtpStatusOffset = 52;
+static constexpr size_t kLidarStatusMinLen = kJt128LidarStatusPtpStatusOffset + 1;
 
 static constexpr uint8_t kPointCloudKeepCurrent = 0xFF;
 static constexpr size_t kPointCloudLiveConfigMinLen = 6;

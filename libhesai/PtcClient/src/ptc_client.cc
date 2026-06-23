@@ -753,17 +753,7 @@ bool ParseLidarPtpStatus(const u8Array_t &dataOut, uint8_t &ptp_status)
   if (dataOut.size() < kLidarStatusMinLen) {
     return false;
   }
-  size_t offset = 0;
-  (void)extractField<uint32_t>(dataOut, offset);
-  (void)extractField<uint16_t>(dataOut, offset);
-  for (int i = 0; i < 8; ++i) {
-    (void)extractField<uint32_t>(dataOut, offset);
-  }
-  (void)extractField<uint8_t>(dataOut, offset);
-  (void)extractField<uint8_t>(dataOut, offset);
-  (void)extractField<uint32_t>(dataOut, offset);
-  (void)extractField<uint32_t>(dataOut, offset);
-  ptp_status = extractField<uint8_t>(dataOut, offset);
+  ptp_status = dataOut[kJt128LidarStatusPtpStatusOffset];
   return true;
 }
 }  // namespace
@@ -793,7 +783,7 @@ int PtcClient::GetLidarStatus() {
   ret = QueryCommand(dataIn, dataOut, 
                            kPTCGetLidarStatus);
   if (ret == 0 && !dataOut.empty()) {
-    // according XT32M1X_TCP_API.pdf
+    // JT128 PTP status is at kJt128LidarStatusPtpStatusOffset.
     uint32_t systemp_uptime;
     uint16_t motor_speed;
     uint32_t temperature[8];
@@ -813,7 +803,10 @@ int PtcClient::GetLidarStatus() {
     gps_gprmc_status = extractField<uint8_t>(dataOut, offset);
     startup_times = extractField<uint32_t>(dataOut, offset);
     total_operation_time = extractField<uint32_t>(dataOut, offset);
-    ptp_status = extractField<uint8_t>(dataOut, offset);
+    ptp_status = 0;
+    if (!ParseLidarPtpStatus(dataOut, ptp_status)) {
+      return -1;
+    }
     printf("System uptime: %u second, Real-time motor speed: %u RPM\n"
            "----------Temperature(0.01 Celsius)-----------\n"
            "Bottom circuit board T1: %u\n"
@@ -830,7 +823,7 @@ int PtcClient::GetLidarStatus() {
     , systemp_uptime, motor_speed, temperature[0], temperature[1],temperature[2], temperature[3],
     temperature[4], temperature[5], temperature[6], temperature[7], gps_pps_lock, gps_gprmc_status,
     startup_times, total_operation_time, ptp_status, PtpStatusName(ptp_status));
-    printf("Lidar Status Size: %zu\n", offset);
+    printf("Lidar Status Size: %zu\n", dataOut.size());
     return 0;
   } else {
     return -1;
