@@ -69,6 +69,25 @@ target_link_libraries(ptc_tool PRIVATE
     ptcClient_lib
 )
 
+# ptc_cli interactive PTC test menu
+add_executable(ptc_cli
+    ptc_cli.cc
+    ptc_menu.cc
+    ptc_test_session.cc
+)
+target_include_directories(ptc_cli PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(ptc_cli PRIVATE
+    ptcClient_lib
+)
+
+# One-lidar network SET smoke test (SetDesIpandPort + SetNet + power-cycle verify)
+add_executable(ptc_network_test
+    ptc_network_test.cc
+)
+target_link_libraries(ptc_network_test PRIVATE
+    ptcClient_lib
+)
+
 # ============================================
 # 构建信息
 # ============================================

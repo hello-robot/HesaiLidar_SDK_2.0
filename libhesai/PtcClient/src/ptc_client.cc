@@ -521,17 +521,260 @@ int PtcClient::GetPTPDiagnostics (u8Array_t &dataOut, uint8_t query_type) {
   }
 }
 
-int PtcClient::GetPTPLockOffset(u8Array_t &dataOut)
+int PtcClient::GetPTPLockOffset(uint16_t &offset_us)
+{
+  u8Array_t dataIn, dataOut;
+  int ret = QueryCommand(dataIn, dataOut, kPTCGetPTPLockOffset);
+  if (ret == 0 && dataOut.size() >= 2) {
+    offset_us = static_cast<uint16_t>(
+        (static_cast<uint16_t>(dataOut[0]) << 8) | dataOut[1]);
+    return 0;
+  }
+  return -1;
+}
+
+bool PtcClient::SetPTPLockOffset(uint16_t offset_us)
+{
+  if (offset_us < kPtpLockOffsetMinUs || offset_us > kPtpLockOffsetMaxUs) {
+    return false;
+  }
+  u8Array_t input, output;
+  input.push_back(static_cast<uint8_t>(offset_us >> 8));
+  input.push_back(static_cast<uint8_t>(offset_us >> 0));
+  if (QueryCommand(input, output, kPTCSetPTPLockOffset) != 0)
+    return false;
+  return true;
+}
+
+namespace {
+void AppendU32BE(u8Array_t &out, uint32_t value)
+{
+  out.push_back(static_cast<uint8_t>(value >> 24));
+  out.push_back(static_cast<uint8_t>(value >> 16));
+  out.push_back(static_cast<uint8_t>(value >> 8));
+  out.push_back(static_cast<uint8_t>(value >> 0));
+}
+
+bool StripExtendedSubcmdEcho(u8Array_t &payload, uint32_t subcmd)
+{
+  if (payload.size() >= 4 &&
+      payload[0] == static_cast<uint8_t>(subcmd >> 24) &&
+      payload[1] == static_cast<uint8_t>(subcmd >> 16) &&
+      payload[2] == static_cast<uint8_t>(subcmd >> 8) &&
+      payload[3] == static_cast<uint8_t>(subcmd >> 0)) {
+    payload.erase(payload.begin(), payload.begin() + 4);
+    return true;
+  }
+  return false;
+}
+}  // namespace
+
+int PtcClient::GetConfigInfoRaw(u8Array_t &dataOut)
 {
   u8Array_t dataIn;
-  int ret = -1;
-  ret = QueryCommand(dataIn, dataOut,
-                           kPTCGetPTPLockOffset);
+  int ret = QueryCommand(dataIn, dataOut, kPTCGetConfigInfo);
   if (ret == 0 && !dataOut.empty()) {
     return 0;
-  } else {
-    return -1;
   }
+  return -1;
+}
+
+bool PtcClient::GetReturnMode(uint8_t &return_mode)
+{
+  u8Array_t dataOut;
+  if (GetConfigInfoRaw(dataOut) != 0) {
+    return false;
+  }
+  // JT128_TCP_API: return_mode field offset 32
+  if (dataOut.size() <= 32) {
+    return false;
+  }
+  return_mode = dataOut[32];
+  return true;
+}
+
+bool PtcClient::GetSpinRate(uint16_t &spin_rate)
+{
+  u8Array_t dataOut;
+  if (GetConfigInfoRaw(dataOut) != 0) {
+    return false;
+  }
+  // JT128_TCP_API: spin_rate uint16 BE at offset 20
+  if (dataOut.size() < 22) {
+    return false;
+  }
+  spin_rate = static_cast<uint16_t>(
+      (static_cast<uint16_t>(dataOut[20]) << 8) | dataOut[21]);
+  return true;
+}
+
+namespace {
+bool ParsePointCloudConfigPayload(
+    const u8Array_t &payload, uint32_t subcmd,
+    uint8_t &ultra_precise, uint8_t &filter)
+{
+  if (payload.size() >= 6 &&
+      payload[0] == static_cast<uint8_t>(subcmd >> 24) &&
+      payload[1] == static_cast<uint8_t>(subcmd >> 16) &&
+      payload[2] == static_cast<uint8_t>(subcmd >> 8) &&
+      payload[3] == static_cast<uint8_t>(subcmd >> 0)) {
+    ultra_precise = payload[4];
+    filter = payload[5];
+    return true;
+  }
+  u8Array_t stripped = payload;
+  if (StripExtendedSubcmdEcho(stripped, subcmd) && stripped.size() >= 2) {
+    ultra_precise = stripped[0];
+    filter = stripped[1];
+    return true;
+  }
+  if (payload.size() >= 2) {
+    ultra_precise = payload[0];
+    filter = payload[1];
+    return true;
+  }
+  return false;
+}
+}  // namespace
+
+bool PtcClient::SetPointCloudConfig(uint8_t ultra_precise, uint8_t filter)
+{
+  // JT128 SET 0x121 payload is two bytes [ultra_precise, filter_type] (PDF typo: 1 byte).
+  u8Array_t input, output;
+  AppendU32BE(input, kPTCSetPointCloudConfigSubCmd);
+  input.push_back(ultra_precise);
+  input.push_back(filter);
+  if (QueryCommand(input, output, kPTCHasSubCommand) != 0) {
+    return false;
+  }
+  return true;
+}
+
+int PtcClient::GetPointCloudConfigRaw(u8Array_t &dataOut)
+{
+  u8Array_t input;
+  AppendU32BE(input, kPTCGetPointCloudConfigSubCmd);
+  int ret = QueryCommand(input, dataOut, kPTCHasSubCommand);
+  if (ret == 0 && !dataOut.empty()) {
+    return 0;
+  }
+  return -1;
+}
+
+int PtcClient::GetPointCloudDescriptorRaw(u8Array_t &dataOut)
+{
+  u8Array_t input;
+  AppendU32BE(input, kPTCGetPointCloudDescriptorSubCmd);
+  int ret = QueryCommand(input, dataOut, kPTCHasSubCommand);
+  if (ret == 0 && !dataOut.empty()) {
+    return 0;
+  }
+  return -1;
+}
+
+bool PtcClient::GetPointCloudConfig(uint8_t &ultra_precise, uint8_t &filter)
+{
+  u8Array_t output;
+  if (GetPointCloudConfigRaw(output) != 0) {
+    return false;
+  }
+  if (output.size() < kPointCloudLiveConfigMinLen) {
+    return false;
+  }
+  return ParsePointCloudConfigPayload(
+      output, kPTCGetPointCloudConfigSubCmd, ultra_precise, filter);
+}
+
+bool PtcClient::IsPointCloudDescriptorTable(const u8Array_t &payload)
+{
+  return payload.size() >= kPointCloudDescriptorTableMinLen &&
+         payload[0] ==
+             static_cast<uint8_t>(kPTCGetPointCloudDescriptorSubCmd >> 24) &&
+         payload[1] ==
+             static_cast<uint8_t>(kPTCGetPointCloudDescriptorSubCmd >> 16) &&
+         payload[2] ==
+             static_cast<uint8_t>(kPTCGetPointCloudDescriptorSubCmd >> 8) &&
+         payload[3] ==
+             static_cast<uint8_t>(kPTCGetPointCloudDescriptorSubCmd >> 0);
+}
+
+bool PtcClient::GetPointCloudMergeBase(uint8_t &ultra, uint8_t &filter,
+                                       bool have_cache, uint8_t cached_ultra,
+                                       uint8_t cached_filter)
+{
+  if (have_cache) {
+    ultra = cached_ultra;
+    filter = cached_filter;
+    return true;
+  }
+  if (GetPointCloudConfig(ultra, filter)) {
+    return true;
+  }
+  ultra = 0;
+  filter = 0;
+  return true;
+}
+
+bool PtcClient::SetPointCloudConfigSelective(uint8_t ultra_precise,
+                                             uint8_t filter_type,
+                                             bool have_cache,
+                                             uint8_t cached_ultra,
+                                             uint8_t cached_filter)
+{
+  if (ultra_precise == kPointCloudKeepCurrent &&
+      filter_type == kPointCloudKeepCurrent) {
+    return false;
+  }
+  uint8_t base_ultra = 0;
+  uint8_t base_filter = 0;
+  GetPointCloudMergeBase(base_ultra, base_filter, have_cache, cached_ultra,
+                         cached_filter);
+  const uint8_t ultra =
+      (ultra_precise == kPointCloudKeepCurrent) ? base_ultra : ultra_precise;
+  const uint8_t filter =
+      (filter_type == kPointCloudKeepCurrent) ? base_filter : filter_type;
+  return SetPointCloudConfig(ultra, filter);
+}
+
+namespace {
+const char *PtpStatusName(uint8_t status)
+{
+  switch (status) {
+    case 0: return "Free run";
+    case 1: return "Tracking";
+    case 2: return "Locked";
+    case 3: return "Frozen";
+    default: return "unknown";
+  }
+}
+
+bool ParseLidarPtpStatus(const u8Array_t &dataOut, uint8_t &ptp_status)
+{
+  if (dataOut.size() < kLidarStatusMinLen) {
+    return false;
+  }
+  ptp_status = dataOut[kJt128LidarStatusPtpStatusOffset];
+  return true;
+}
+}  // namespace
+
+int PtcClient::GetLidarStatusRaw(u8Array_t &dataOut)
+{
+  u8Array_t dataIn;
+  int ret = QueryCommand(dataIn, dataOut, kPTCGetLidarStatus);
+  if (ret == 0 && !dataOut.empty()) {
+    return 0;
+  }
+  return -1;
+}
+
+bool PtcClient::GetLidarPtpStatus(uint8_t &ptp_status)
+{
+  u8Array_t dataOut;
+  if (GetLidarStatusRaw(dataOut) != 0) {
+    return false;
+  }
+  return ParseLidarPtpStatus(dataOut, ptp_status);
 }
 
 int PtcClient::GetLidarStatus() {
@@ -540,7 +783,7 @@ int PtcClient::GetLidarStatus() {
   ret = QueryCommand(dataIn, dataOut, 
                            kPTCGetLidarStatus);
   if (ret == 0 && !dataOut.empty()) {
-    // according XT32M1X_TCP_API.pdf
+    // JT128 PTP status is at kJt128LidarStatusPtpStatusOffset.
     uint32_t systemp_uptime;
     uint16_t motor_speed;
     uint32_t temperature[8];
@@ -560,7 +803,10 @@ int PtcClient::GetLidarStatus() {
     gps_gprmc_status = extractField<uint8_t>(dataOut, offset);
     startup_times = extractField<uint32_t>(dataOut, offset);
     total_operation_time = extractField<uint32_t>(dataOut, offset);
-    ptp_status = extractField<uint8_t>(dataOut, offset);
+    ptp_status = 0;
+    if (!ParseLidarPtpStatus(dataOut, ptp_status)) {
+      return -1;
+    }
     printf("System uptime: %u second, Real-time motor speed: %u RPM\n"
            "----------Temperature(0.01 Celsius)-----------\n"
            "Bottom circuit board T1: %u\n"
@@ -573,11 +819,11 @@ int PtcClient::GetLidarStatus() {
            "Top circuit RT4: %u\n"
            "GPS PPS status: %u, GPS NMEA status: %u\n"
            "System start-up times: %u, Total time in operation: %u\n"
-           "PTP status: %u\n"
+           "PTP status: %u (%s)\n"
     , systemp_uptime, motor_speed, temperature[0], temperature[1],temperature[2], temperature[3],
     temperature[4], temperature[5], temperature[6], temperature[7], gps_pps_lock, gps_gprmc_status,
-    startup_times, total_operation_time, ptp_status);
-    printf("Lidar Status Size: %zu\n", offset);
+    startup_times, total_operation_time, ptp_status, PtpStatusName(ptp_status));
+    printf("Lidar Status Size: %zu\n", dataOut.size());
     return 0;
   } else {
     return -1;
@@ -754,6 +1000,9 @@ bool PtcClient::SetStandbyMode(uint32_t standby_mode)
 
 bool PtcClient::SetSpinSpeed(uint32_t speed)
 {
+  if (!IsValidSpinRateRpm(speed)) {
+    return false;
+  }
   u8Array_t input2, output2;
   input2.push_back(static_cast<uint8_t>(speed >> 8));
   input2.push_back(static_cast<uint8_t>(speed >> 0));

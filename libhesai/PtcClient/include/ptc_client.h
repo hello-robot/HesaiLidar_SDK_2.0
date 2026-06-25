@@ -67,6 +67,7 @@ const uint8_t  KPTCGetFov = 0x23;
 const uint8_t  kPTCResetLidar = 0x25;
 const uint8_t  kPTCGetFreezeFrames = 0x30;
 const uint8_t  kPTCGetLidarOperationLog = 0x38;
+const uint8_t  kPTCSetPTPLockOffset = 0x39;
 const uint8_t  kPTCGetPTPLockOffset = 0x3a;
 const uint8_t  kPTCUpgradeLidar = 0x83;
 const uint8_t  kPTCGetUpgradeLidarLog = 0x87;
@@ -78,6 +79,31 @@ const uint32_t kPTCUpgradeLidarSubCmd = 0x0000000D;
 const uint32_t kPTCGetRetroSubCmd = 0x0000011E;
 const uint32_t kPTCJT16CommandSubCmd = 0x00000138;
 const uint32_t kPTCJT16SetBaudrate = 0x00000139;
+// JT128 point cloud filter / ultra-precise (cmd 0xFF extended subcommands)
+const uint32_t kPTCGetPointCloudDescriptorSubCmd = 0x00000120;  // descriptor table
+const uint32_t kPTCSetPointCloudConfigSubCmd = 0x00000121;      // SET [ultra, filter]
+const uint32_t kPTCGetPointCloudConfigSubCmd = 0x00000122;      // GET live ultra + filter
+
+// JT128 PTP lock offset threshold (0x39 SET / 0x3a GET): 2-byte BE uint16, 1-1000 us.
+static constexpr uint16_t kPtpLockOffsetMinUs = 1;
+static constexpr uint16_t kPtpLockOffsetMaxUs = 1000;
+static constexpr size_t kPtpDiagnosticsPayloadLen = 24;
+static constexpr size_t kJt128LidarStatusPtpStatusOffset = 52;
+static constexpr size_t kLidarStatusMinLen = kJt128LidarStatusPtpStatusOffset + 1;
+
+static constexpr uint8_t kPointCloudKeepCurrent = 0xFF;
+static constexpr size_t kPointCloudLiveConfigMinLen = 6;
+static constexpr size_t kPointCloudDescriptorTableMinLen = 8;
+
+// JT128 spin_rate (PTC 0x17 SET / config offset 20): unsigned short, 600 or 1200 RPM only.
+static constexpr uint16_t kSpinRateRpm600 = 600;
+static constexpr uint16_t kSpinRateRpm1200 = 1200;
+static constexpr uint16_t kSpinRateRpmDefault = kSpinRateRpm600;
+
+inline bool IsValidSpinRateRpm(uint32_t rpm)
+{
+  return rpm == kSpinRateRpm600 || rpm == kSpinRateRpm1200;
+}
 
 typedef struct UpgradeProgress {
     int total_packets;
@@ -122,9 +148,27 @@ class PtcClient {
 
   u8Array_t GetCorrectionInfo();
   int GetLidarStatus();
+  int GetLidarStatusRaw(u8Array_t &dataOut);
+  bool GetLidarPtpStatus(uint8_t &ptp_status);
   int GetConfigInfo();
   int GetPTPDiagnostics (u8Array_t &dataOut, uint8_t query_type);
-  int GetPTPLockOffset(u8Array_t &dataOut);
+  bool SetPTPLockOffset(uint16_t offset_us);
+  int GetPTPLockOffset(uint16_t &offset_us);
+  int GetConfigInfoRaw(u8Array_t &dataOut);
+  bool GetReturnMode(uint8_t &return_mode);
+  bool GetSpinRate(uint16_t &spin_rate);
+  bool SetPointCloudConfig(uint8_t ultra_precise, uint8_t filter);
+  bool GetPointCloudConfig(uint8_t &ultra_precise, uint8_t &filter);
+  int GetPointCloudConfigRaw(u8Array_t &dataOut);
+  int GetPointCloudDescriptorRaw(u8Array_t &dataOut);
+  static bool IsPointCloudDescriptorTable(const u8Array_t &payload);
+  bool GetPointCloudMergeBase(uint8_t &ultra, uint8_t &filter,
+                              bool have_cache, uint8_t cached_ultra,
+                              uint8_t cached_filter);
+  bool SetPointCloudConfigSelective(uint8_t ultra_precise, uint8_t filter_type,
+                                    bool have_cache = false,
+                                    uint8_t cached_ultra = 0,
+                                    uint8_t cached_filter = 0);
   int GetCorrectionInfo(u8Array_t &dataOut);
   int GetFiretimesInfo(u8Array_t &dataOut);
   int GetChannelConfigInfo(u8Array_t &dataOut);
@@ -234,7 +278,7 @@ class PtcClient {
   /**
    * @brief Set the spin_speed of lidar
    * 
-   * @param speed                     Expected spinspeed, it is important to note that you must fill in the RPM supported by the radar you are using
+   * @param speed                     JT128: 600 or 1200 RPM only (600 default)
    * @return true 
    * @return false 
    */
