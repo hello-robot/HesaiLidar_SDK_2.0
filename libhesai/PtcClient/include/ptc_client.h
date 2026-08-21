@@ -36,6 +36,7 @@ ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define PtcClient_H
 
 #include <vector>
+#include <functional>
 #include "tcp_client.h"
 #include "driver_param.h"
 #include "ptc_parser.h"
@@ -112,6 +113,7 @@ typedef struct UpgradeProgress {
     int error_code;
 } UpgradeProgress;
 typedef void *(*UpgradeProgressFunc_t)(void *);
+using UpgradePercentCallback = std::function<void(float)>;
 
 class PtcClient {
  public:
@@ -178,6 +180,10 @@ class PtcClient {
   int UpgradeLidar(u8Array_t &dataIn, std::string cmd_id, int &upgradeProgress);
   int UpgradeLidar(u8Array_t &dataIn, uint32_t cmd_id, int is_extern, int &upgrade_progress);
   void RegisterUpgradeProcessFunc(UpgradeProgressFunc_t func);
+  void SetUpgradePercentCallback(UpgradePercentCallback cb);
+  int GetUpgradeCurrentPacket() const;
+  int GetUpgradeTotalPackets() const;
+  int GetUpgradeStatus() const;
   bool RebootLidar();
   int DownloadLog(u8Array_t &dataIn, u8Array_t &dataOut, uint8_t cmd);
   int SetAllChannelFov(float fov[], int fov_num, int fov_model);
@@ -329,6 +335,8 @@ class PtcClient {
   uint32_t last_send_timeout_ms_;
   float ptc_connect_timeout_;
   UpgradeProgressFunc_t upgradeProcessFunc;
+  UpgradeProgress upgrade_progress_;
+  UpgradePercentCallback upgrade_percent_callback_;
   CallbackType log_message_handler_callback_ = nullptr;
 };
 }

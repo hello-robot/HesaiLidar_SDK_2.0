@@ -95,6 +95,8 @@ PtcClient::PtcClient(std::string ip
   // init ptc parser
   ptc_parser_ = std::make_shared<PtcParser>(ptc_version);
   upgradeProcessFunc = nullptr;
+  memset(&upgrade_progress_, 0, sizeof(UpgradeProgress));
+  upgrade_percent_callback_ = nullptr;
 }
 
 void PtcClient::TryOpen() {
@@ -1215,34 +1217,49 @@ std::vector<uint8_t> readFileContent(const std::string& filePath) {
 }
 
 
-static void* upgradeProcessFunction(void* threadArgs) {
-    UpgradeProgress* progressInfo  = (UpgradeProgress*)threadArgs;
-
-    while(progressInfo->status == 0 && progressInfo->current_packet < progressInfo->total_packets)
-    {
-        float progress = progressInfo->current_packet / (float)progressInfo->total_packets;
-        LogInfo("Progress: %.2f%%", progress * 100);
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-    }
-    if (progressInfo->current_packet == progressInfo->total_packets) {
-      LogInfo("Progress: 100.00%");
-    }
-    return NULL;
-}
-
-
 int PtcClient::UpgradeLidarPatch(const std::string &file_path, uint32_t cmd_id, int is_extern) 
 {
-  if (this->upgradeProcessFunc == nullptr)
-  {
-    this->upgradeProcessFunc = upgradeProcessFunction;
-  }
-  UpgradeProgress upgrade_progress_;
-  memset(&upgrade_progress_, 0, sizeof(UpgradeProgress));    
+  memset(&upgrade_progress_, 0, sizeof(UpgradeProgress));
   std::vector<uint8_t> content = readFileContent(file_path);
-  upgrade_progress_.total_packets = content.size() / 1024;
+  if (content.empty()) {
+    LogError("Error reading upgrade file: %s", file_path.c_str());
+    upgrade_progress_.status = -1;
+    return -1;
+  }
+  upgrade_progress_.total_packets = static_cast<int>(content.size() / 1024);
+  if (upgrade_progress_.total_packets <= 0) {
+    upgrade_progress_.total_packets = 1;
+  }
   LogInfo("Upgrade progress total packets: %d\n", upgrade_progress_.total_packets);
-  std::thread thread = std::thread(std::bind(this->upgradeProcessFunc, (void*)&upgrade_progress_));;
+
+  auto progress_thread_fn = [this]() {
+    while (upgrade_progress_.status == 0 &&
+           upgrade_progress_.current_packet < upgrade_progress_.total_packets) {
+      float progress = upgrade_progress_.current_packet /
+                       static_cast<float>(upgrade_progress_.total_packets);
+      float percent = progress * 100.f;
+      LogInfo("Progress: %.2f%%", percent);
+      if (upgrade_percent_callback_) {
+        upgrade_percent_callback_(percent);
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
+    if (upgrade_progress_.status == 0 &&
+        upgrade_progress_.current_packet >= upgrade_progress_.total_packets) {
+      LogInfo("Progress: 100.00%");
+      if (upgrade_percent_callback_) {
+        upgrade_percent_callback_(100.f);
+      }
+    }
+  };
+
+  // Prefer member progress + percent callback; fall back to legacy C callback.
+  std::thread thread;
+  if (upgrade_percent_callback_ || upgradeProcessFunc == nullptr) {
+    thread = std::thread(progress_thread_fn);
+  } else {
+    thread = std::thread(std::bind(this->upgradeProcessFunc, (void*)&upgrade_progress_));
+  }
 
   int start = GetMicroTickCount();
   int ret = this->UpgradeLidar(content, cmd_id, is_extern, upgrade_progress_.current_packet);
@@ -1251,8 +1268,12 @@ int PtcClient::UpgradeLidarPatch(const std::string &file_path, uint32_t cmd_id, 
       upgrade_progress_.status = -1;
       thread.join();
       return -1;
-  } else {
-      upgrade_progress_.status = 0;
+  }
+
+  upgrade_progress_.current_packet = upgrade_progress_.total_packets;
+  upgrade_progress_.status = 1;
+  if (upgrade_percent_callback_) {
+    upgrade_percent_callback_(100.f);
   }
 
   double elapsed_time = GetMicroTickCount() - start;
@@ -1266,6 +1287,26 @@ int PtcClient::UpgradeLidarPatch(const std::string &file_path, uint32_t cmd_id, 
 void PtcClient::RegisterUpgradeProcessFunc(UpgradeProgressFunc_t func)
 {
   this->upgradeProcessFunc = func;
+}
+
+void PtcClient::SetUpgradePercentCallback(UpgradePercentCallback cb)
+{
+  upgrade_percent_callback_ = std::move(cb);
+}
+
+int PtcClient::GetUpgradeCurrentPacket() const
+{
+  return upgrade_progress_.current_packet;
+}
+
+int PtcClient::GetUpgradeTotalPackets() const
+{
+  return upgrade_progress_.total_packets;
+}
+
+int PtcClient::GetUpgradeStatus() const
+{
+  return upgrade_progress_.status;
 }
 
 void PtcClient::SetLidarIP(std::string lidar_ip) {
